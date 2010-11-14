@@ -4,7 +4,8 @@
 %% @type assoc() = binding(key()) | value().
 %% @type key() = null | bool() | integer() | data().
 %% @type object() = {object, class(), object_data()}.
-%% @type class() = iodata().
+%% @type class() = label().
+%% @type label() = iodata().
 %% @type object_data() = data() | [property()].
 %% @type property() = binding(data()).
 %% @type data() = iodata() | atom().
@@ -17,6 +18,12 @@
          serialize/2,
          unserialize/1,
          read_serialized/1]).
+
+-define(is_digit(C), C >= $0, C =< $9).
+-define(is_letter(C), C =:= $_;
+                      C >= $A, C =< $Z;
+                      C >= $a, C =< $z;
+                      C >= 127).
 
 %% @spec serialize(value()) -> binary()
 %% @equiv serialize(Value, 6)
@@ -66,11 +73,11 @@ read_serialized(<<"a:", Rest/binary>>) ->
   {Fields, Rest2} = read_assocs(Rest, fun read_index/1),
   {{array, Fields}, Rest2};
 read_serialized(<<"O:", Rest/binary>>) ->
-  {Class, <<$:, Rest2/binary>>} = read_binary(Rest),
+  {Class, <<$:, Rest2/binary>>} = read_label(Rest),
   {Properties, Rest3} = read_assocs(Rest2, fun read_string/1),
   {{Class, Properties}, Rest3};
 read_serialized(<<"C:", Rest/binary>>) ->
-  {Class, <<$:, Rest2/binary>>} = read_binary(Rest),
+  {Class, <<$:, Rest2/binary>>} = read_label(Rest),
   {Length, <<":{", Rest3/binary>>} = read_unsigned(Rest2),
   <<Data:Length/binary, $}, Rest4/binary>> = Rest3,
   {{object, Class, Data}, Rest4};
@@ -155,12 +162,6 @@ write_atom(Atom) ->
 write_string(Value) ->
   <<"s:", (write_binary(Value))/binary, $;>>.
 
--define(is_digit(C), C >= $0, C =< $9).
--define(is_letter(C), C =:= $_;
-                      C >= $A, C =< $Z;
-                      C >= $a, C =< $z;
-                      C >= 127).
-
 write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
   write_label(Rest, [C]);
 write_label(List) when is_list(List) ->
@@ -224,13 +225,26 @@ read_index(Bin) ->
 
 %% @spec read_string(Bin::binary()) -> {binary(), binary()}
 read_string(<<"s:", Rest/binary>>) ->
-  {String, <<$;, Rest2/binary>>} = read_binary(Rest),
+  {String, <<$;, Rest2/binary>>} = read_binary(Rest, fun read_string/2),
   {String, Rest2}.
+read_string(Bin, Length) ->
+  <<String:Length/binary, Rest/binary>> = Bin,
+  {String, Rest}.
 
-%% @spec read_binary(binary()) -> {binary(), binary()}
-read_binary(Bin) ->
-  {Length, <<$:, Rest/binary>>} = read_unsigned(Bin),
-  <<$", String:Length/binary, $", Rest2/binary>> = Rest,
+%% @spec read_label(binary()) -> {label(), binary()}
+read_label(Bin) ->
+  read_binary(Bin, fun read_label/2).
+read_label(<<C, Rest/binary>>, Length) when ?is_letter(C) ->
+  read_label(Rest, Length - 1, [C]).
+read_label(<<C, Rest/binary>>, Length, Acc) when ?is_letter(C); ?is_digit(C) ->
+  read_label(Rest, Length - 1, Acc);
+read_label(Bin, 0, Acc) ->
+  {list_to_binary(Acc), Bin}.
+
+%% @spec read_binary(binary(), function()) -> {binary(), binary()}
+read_binary(Bin, ReadFun) ->
+  {Length, <<$:, $", Rest/binary>>} = read_unsigned(Bin),
+  {String, <<$", Rest2/binary>>} = ReadFun(Rest, Length),
   {String, Rest2}.
 
 %% @spec read_float(binary()) -> {float(), binary()}
