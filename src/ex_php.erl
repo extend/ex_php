@@ -154,9 +154,9 @@ write_string(Value) ->
 
 -define(is_digit(C), C >= $0, C =< $9).
 -define(is_letter(C), C =:= $_;
-                            C >= $A, C =< $Z;
-                            C >= $a, C =< $z;
-                            C >= 127).
+                      C >= $A, C =< $Z;
+                      C >= $a, C =< $z;
+                      C >= 127).
 
 write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
   write_label(Rest, [C]);
