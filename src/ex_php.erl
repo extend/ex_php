@@ -204,13 +204,13 @@ unsigned_to_binary(Integer, Acc) ->
 %% @spec read_assocs(binary(), function()) -> [field()]
 read_assocs(Bin, ReadKeyFun) ->
   {Length, <<":{", Rest/binary>>} = read_unsigned(Bin),
-  read_fields(Rest, ReadKeyFun, Length, []).
-read_fields(<<$}, Rest/binary>>, _ReadKeyFun, 0, Fields) ->
+  read_assocs(Rest, ReadKeyFun, Length, []).
+read_assocs(<<$}, Rest/binary>>, _ReadKeyFun, 0, Fields) ->
   {lists:reverse(Fields), Rest};
-read_fields(Bin, ReadKeyFun, N, Fields) ->
+read_assocs(Bin, ReadKeyFun, N, Fields) ->
   {Key, <<$:, Rest/binary>>} = ReadKeyFun(Bin),
   {Value, Rest2} = read_serialized(Rest),
-  read_fields(Rest2, ReadKeyFun, N - 1, [{Key, Value}, Fields]).
+  read_assocs(Rest2, ReadKeyFun, N - 1, [{Key, Value}, Fields]).
 
 %% @spec read_index(Bin::binary()) -> integer() | binary()
 read_index(<<"i:", Rest/binary>>) ->
