@@ -2,7 +2,7 @@
 %%               | object() | data().
 %% @type array() = {array, [assoc()]}.
 %% @type assoc() = pair(key()) | value().
-%% @type key() = null | bool() | integer() | data().
+%% @type key() = null | bool() | integer() | float() | data().
 %% @type object() = {object, class(), object_data()}.
 %% @type class() = label().
 %% @type label() = iodata().
@@ -120,6 +120,8 @@ write_assoc(Value, Precision, Index) ->
 %% @spec write_key(Key::key(), Index::integer()) -> {binary(), integer()}
 write_key(Integer, Index) when is_integer(Integer) ->
   {write_integer(Integer), max(Integer, Index + 1)};
+write_key(Float, Index) when is_float(Float) ->
+  {trunc(Float), Index};
 write_key(Atom, Index) when Atom =:= null; Atom =:= false ->
   write_key(0, Index);
 write_key(true, Index) ->
