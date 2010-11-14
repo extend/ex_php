@@ -1,7 +1,7 @@
 %% @type value() = null | bool() | integer() | float() | array() | object().
 %% @type array() = {array, [assoc()]}.
-%% @type assoc() = binding(index()) | value().
-%% @type index() = integer() | data().
+%% @type assoc() = binding(key()) | value().
+%% @type key() = null | bool() | integer() | data().
 %% @type object() = {object, class(), object_data()}.
 %% @type class() = iodata().
 %% @type object_data() = data() | [property()].
@@ -110,23 +110,27 @@ write_assoc_fun(Index) ->
 
 %% @spec write_assoc(Assoc::assoc(), Precision::integer(),
 %%                   integer()) -> {iolist(), integer()}
-write_assoc({Integer, Value}, Precision, Index) when is_integer(Integer) ->
-  IntegerBin = write_integer(Integer),
-  NewIndex = max(Integer, Index),
-  {[IntegerBin, serialize(Value, Precision)], NewIndex + 1};
-write_assoc(Property = {_Name, _Value}, Precision, Index) ->
-  {write_property(Property, Precision), Index};
+write_assoc({Key, Value}, Precision, Index) ->
+  {KeyBin, NewIndex} = write_key(Key, Index),
+  {[KeyBin, serialize(Value, Precision)], NewIndex + 1};
 write_assoc(Value, Precision, Index) ->
   write_assoc({Index, Value}, Precision, Index).
 
+%% @spec write_key(Index::index(), Index::integer()) -> {binary(), integer()}
+write_key(Integer, Index) when is_integer(Integer) ->
+  {write_integer(Integer), max(Integer, Index + 1)};
+write_key(Atom, Index) when Atom =:= null; Atom =:= false ->
+  write_key(0, Index);
+write_key(true, Index) ->
+  write_key(1, Index);
+write_key(Data, Index) ->
+  {write_string(Data), Index}.
+
 %% @spec write_property_fun() -> function()
 write_property_fun() ->
-  fun (Property, Precision) ->
-    {write_property(Property, Precision), write_property_fun()} end.
-
-%% @spec write_property(Property::property(), integer()) -> iolist()
-write_property({Name, Value}, Precision) ->
-  [write_string(Name), serialize(Value, Precision)].
+  fun ({Name, Value}, Precision) ->
+        {[write_string(Name), serialize(Value, Precision)],
+         write_property_fun()} end.
 
 %% @spec write_integer(integer()) -> binary()
 %% @doc Return `<<"i:Integer;">>'.
