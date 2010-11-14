@@ -6,7 +6,7 @@
 %% @type object() = {object, class(), object_data()}.
 %% @type class() = label().
 %% @type label() = iodata().
-%% @type object_data() = data() | [property()].
+%% @type object_data() = binary() | atom() | [property()].
 %% @type property() = pair(data()).
 %% @type data() = iodata() | atom().
 %% @type pair(T) = {T, value()}.
