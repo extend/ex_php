@@ -30,7 +30,7 @@ serialize(Integer, _Precision) when is_integer(Integer) ->
   write_integer(Integer);
 serialize(Float, Precision) when is_float(Float) ->
   Format = lists:flatten([$~, $., integer_to_list(Precision), $f]),
-  <<"d:", (iolist_to_binary(io_lib:format(Format, [Float])))/binary, $;>>;
+  iolist_to_binary([$d, $:, io_lib:format(Format, [Float]), $;]);
 serialize({array, Assocs}, Precision) when is_list(Assocs) ->
   AssocsIo =  write_bindings(Assocs, Precision, write_assoc_fun(0)),
   iolist_to_binary([<<"a:">>, AssocsIo]);
