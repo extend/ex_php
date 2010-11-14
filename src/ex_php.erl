@@ -1,11 +1,12 @@
 %% @type value() = null | bool() | integer() | float() | array() | object().
 %% @type array() = {array, [assoc()]}.
 %% @type assoc() = binding(index()) | value().
-%% @type index() = integer() | key().
-%% @type object() = {object, class(), [property()]}.
+%% @type index() = integer() | data().
+%% @type object() = {object, class(), object_data()}.
 %% @type class() = iodata().
-%% @type property() = binding(key()).
-%% @type key() = iodata() | atom().
+%% @type object_data() = data() | [property()].
+%% @type property() = binding(data()).
+%% @type data() = iodata() | atom().
 %% @type binding(T) = {T, value()}.
 
 -module(ex_php).
@@ -33,10 +34,8 @@ serialize(Float, Precision) when is_float(Float) ->
 serialize({array, Assocs}, Precision) when is_list(Assocs) ->
   AssocsIo =  write_bindings(Assocs, Precision, write_assoc_fun(0)),
   iolist_to_binary([<<"a:">>, AssocsIo]);
-serialize({object, Class, Properties}, Precision) when is_list(Properties) ->
-  PropertiesIo = write_bindings(Properties, Precision, write_property_fun()),
-  ClassBin = write_label(Class),
-  iolist_to_binary([<<"O:">>, write_binary(ClassBin), $:, PropertiesIo]);
+serialize({object, Class, Data}, Precision) ->
+  write_object(Class, Data, Precision);
 serialize(Atom, _Precision) when is_atom(Atom) ->
   write_atom(Atom);
 serialize(Term, _Precision) ->
@@ -69,11 +68,29 @@ read_serialized(<<"O:", Rest/binary>>) ->
   {Class, <<$:, Rest2/binary>>} = read_binary(Rest),
   {Properties, Rest3} = read_assocs(Rest2, fun read_string/1),
   {{Class, Properties}, Rest3};
+read_serialized(<<"C:", Rest/binary>>) ->
+  {Class, <<$:, Rest2/binary>>} = read_binary(Rest),
+  {Length, <<":{", Rest3/binary>>} = read_unsigned(Rest2),
+  <<Data:Length/binary, $}, Rest4/binary>> = Rest3,
+  {{object, Class, Data}, Rest4};
 read_serialized(Bin) when is_binary(Bin) ->
   read_index(Bin);
 read_serialized(List) when is_list(List) ->
   read_serialized(iolist_to_binary(List)).
 
+
+%% @spec write_object(Class::class(), object_data(),
+%%                    Precision::integer()) -> binary()
+write_object(Class, Data, Precision) when is_list(Data) ->
+  ClassBin = write_label(Class),
+  PropertiesIo = write_bindings(Data, Precision, write_property_fun()),
+  iolist_to_binary([$O, $:, write_binary(ClassBin), $:, PropertiesIo]);
+write_object(Class, Data, _Precision) ->
+  ClassBin = write_label(Class),
+  DataBin = write_data(Data),
+  iolist_to_binary([$C, $:, write_binary(ClassBin), $:,
+                    unsigned_to_binary(byte_size(DataBin)), $:,
+                    ${, DataBin, $}]).
 
 %% @spec write_bindings(Bindings::[binding()], Precision::integer(),
 %%                      function()) -> iolist()
@@ -146,22 +163,26 @@ write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
 write_label(List) when is_list(List) ->
   write_label(iolist_to_binary(List));
 write_label(Atom) when is_atom(Atom) ->
-  write_binary(atom_to_binary(Atom, latin1)).
-
+  write_label(atom_to_binary(Atom, latin1)).
 write_label(<<C, Rest/binary>>, Acc) when ?is_letter(C); ?is_digit(C) ->
   write_label(Rest, Acc);
 write_label(<<>>, Acc) ->
   list_to_binary(lists:reverse(Acc)).
 
-%% @spec write_binary(Value::type()) -> binary()
-%%       where type() = iodata() | atom()
+%% @spec write_binary(Value::data()) -> binary()
 %% @doc Return `<<"L(Value):\"Value\"">>'.
-write_binary(Bin) when is_binary(Bin) ->
-  <<(unsigned_to_binary(byte_size(Bin)))/binary, $:, $", Bin/binary, $">>;
-write_binary(List) when is_list(List) ->
-  write_binary(iolist_to_binary(List));
-write_binary(Atom) when is_atom(Atom) ->
-  write_binary(atom_to_binary(Atom, latin1)).
+write_binary(Value) ->
+  Bin = write_data(Value),
+  <<(unsigned_to_binary(byte_size(Bin)))/binary, $:, $", Bin/binary, $">>.
+
+%% @spec write_data(Value::data()) -> binary()
+%% @doc Return `Value' as a binary.
+write_data(Bin) when is_binary(Bin) ->
+  Bin;
+write_data(List) when is_list(List) ->
+  write_data(iolist_to_binary(List));
+write_data(Atom) when is_atom(Atom) ->
+  write_data(atom_to_binary(Atom, latin1)).
 
 %% @spec integer_to_binary(integer()) -> binary()
 integer_to_binary(Integer) when Integer < 0 ->
@@ -245,4 +266,5 @@ basic_test_() ->
                              42,
                              <<"foobar">>,
                              {array, []},
-                             {object, <<"stdClass">>, []}] ].
+                             {object, <<"stdClass">>, []},
+                             {object, <<"Foo">>, <<"bar">>}] ].
