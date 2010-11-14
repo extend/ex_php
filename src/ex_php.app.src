@@ -1,0 +1,11 @@
+{application, ex_php,
+ [
+  {description, "A simple PHP serialization library"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
