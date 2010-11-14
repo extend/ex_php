@@ -24,7 +24,6 @@ serialize(Value) ->
 
 %% @spec serialize(Value::value(), Precision::integer()) -> binary()
 %% @doc Serialize `Value' using `Precision' to write floats.
-%% @todo Check object classes.
 %% @todo Document array indexing.
 serialize(Integer, _Precision) when is_integer(Integer) ->
   write_integer(Integer);
@@ -36,7 +35,8 @@ serialize({array, Assocs}, Precision) when is_list(Assocs) ->
   iolist_to_binary([<<"a:">>, AssocsIo]);
 serialize({object, Class, Properties}, Precision) when is_list(Properties) ->
   PropertiesIo = write_bindings(Properties, Precision, write_property_fun()),
-  iolist_to_binary([<<"O:">>, write_binary(Class), $:, PropertiesIo]);
+  ClassBin = write_label(Class),
+  iolist_to_binary([<<"O:">>, write_binary(ClassBin), $:, PropertiesIo]);
 serialize(Atom, _Precision) when is_atom(Atom) ->
   write_atom(Atom);
 serialize(Term, _Precision) ->
@@ -132,6 +132,24 @@ write_atom(Atom) ->
 %% @doc Return `<<"s:L(Value):\"Value\";">>'.
 write_string(Value) ->
   <<"s:", (write_binary(Value))/binary, $;>>.
+
+-define(is_digit(C), C >= $0, C =< $9).
+-define(is_letter(C), C =:= $_;
+                            C >= $A, C =< $Z;
+                            C >= $a, C =< $z;
+                            C >= 127).
+
+write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
+  write_label(Rest, [C]);
+write_label(List) when is_list(List) ->
+  write_label(iolist_to_binary(List));
+write_label(Atom) when is_atom(Atom) ->
+  write_binary(atom_to_binary(Atom, latin1)).
+
+write_label(<<C, Rest/binary>>, Acc) when ?is_letter(C); ?is_digit(C) ->
+  write_label(Rest, Acc);
+write_label(<<>>, Acc) ->
+  list_to_binary(lists:reverse(Acc)).
 
 %% @spec write_binary(Value::type()) -> binary()
 %%       where type() = iodata() | atom()
