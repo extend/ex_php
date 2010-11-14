@@ -70,17 +70,12 @@ read_serialized(<<"d:", Rest/binary>>) ->
   {Double, <<";", Rest2/binary>>} = read_float(Rest),
   {Double, Rest2};
 read_serialized(<<"a:", Rest/binary>>) ->
-  {Fields, Rest2} = read_assocs(Rest, fun read_index/1),
+  {Fields, Rest2} = read_brackets(Rest, fun read_array_data/2),
   {{array, Fields}, Rest2};
 read_serialized(<<"O:", Rest/binary>>) ->
-  {Class, <<$:, Rest2/binary>>} = read_label(Rest),
-  {Properties, Rest3} = read_assocs(Rest2, fun read_string/1),
-  {{Class, Properties}, Rest3};
+  read_object(Rest, fun read_properties/2);
 read_serialized(<<"C:", Rest/binary>>) ->
-  {Class, <<$:, Rest2/binary>>} = read_label(Rest),
-  {Length, <<":{", Rest3/binary>>} = read_unsigned(Rest2),
-  <<Data:Length/binary, $}, Rest4/binary>> = Rest3,
-  {{object, Class, Data}, Rest4};
+  read_object(Rest, fun read_data/2);
 read_serialized(Bin) when is_binary(Bin) ->
   read_index(Bin);
 read_serialized(List) when is_list(List) ->
@@ -205,16 +200,40 @@ unsigned_to_binary(Integer, Acc) ->
   unsigned_to_binary(Integer div 10, <<((Integer rem 10) + $0), Acc/binary>>).
 
 
-%% @spec read_assocs(binary(), function()) -> {[field()], binary()}
-read_assocs(Bin, ReadKeyFun) ->
+%% @spec read_object(binary(), function()) -> {object(), binary()}
+read_object(Bin, ReadFun) ->
+  {Class, <<$:, Rest/binary>>} = read_label(Bin),
+  {ObjectData, Rest2} = read_brackets(Rest, ReadFun),
+  {{object, Class, ObjectData}, Rest2}.
+
+%% @spec read_brackets(binary(), function()) -> {term(), binary()}
+read_brackets(Bin, ReadFun) ->
   {Length, <<":{", Rest/binary>>} = read_unsigned(Bin),
-  read_assocs(Rest, ReadKeyFun, Length, []).
-read_assocs(<<$}, Rest/binary>>, _ReadKeyFun, 0, Fields) ->
-  {lists:reverse(Fields), Rest};
-read_assocs(Bin, ReadKeyFun, N, Fields) ->
+  {Result, <<$}, Rest2/binary>>} = ReadFun(Rest, Length),
+  {Result, Rest2}.
+
+%% @spec read_properties(binary(), integer()) -> {[property()], binary()}
+read_properties(Bin, Length) ->
+  read_assocs(Bin, Length, fun read_string/1).
+
+%% @spec read_data(binary(), integer()) -> {binary(), binary()}
+read_data(Bin, Length) ->
+  <<Data:Length/binary, Rest/binary>> = Bin,
+  {Data, Rest}.
+
+%% @spec read_array_data(binary(), integer()) -> {[assoc()], binary()}
+read_array_data(Bin, Length) ->
+  read_assocs(Bin, Length, fun read_index/1).
+
+%% @spec read_assocs(binary(), function()) -> {[field()], binary()}
+read_assocs(Bin, Length, ReadKeyFun) ->
+  read_assocs(Bin, Length, ReadKeyFun, []).
+read_assocs(Bin, 0, _ReadKeyFun, Fields) ->
+  {lists:reverse(Fields), Bin};
+read_assocs(Bin, N, ReadKeyFun, Fields) ->
   {Key, <<$:, Rest/binary>>} = ReadKeyFun(Bin),
   {Value, Rest2} = read_serialized(Rest),
-  read_assocs(Rest2, ReadKeyFun, N - 1, [{Key, Value}, Fields]).
+  read_assocs(Rest2, N - 1, ReadKeyFun, [{Key, Value}, Fields]).
 
 %% @spec read_index(Bin::binary()) -> {integer() | binary(), binary()}
 read_index(<<"i:", Rest/binary>>) ->
