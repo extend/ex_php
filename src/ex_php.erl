@@ -75,7 +75,8 @@ read_serialized(List) when is_list(List) ->
   read_serialized(iolist_to_binary(List)).
 
 
-%% @spec write_bindings(Bindings::[binding()], function()) -> iolist()
+%% @spec write_bindings(Bindings::[binding()], Precision::integer(),
+%%                      function()) -> iolist()
 write_bindings(Bindings, Precision, WriteFun) ->
   write_bindings(Bindings, Precision, WriteFun, [], 0).
 write_bindings([], _Precision, _WriteFun, Acc, Length) ->
@@ -90,7 +91,8 @@ write_assoc_fun(Index) ->
         {AssocBin, NewIndex} = write_assoc(Assoc, Precision, Index),
         {AssocBin, write_assoc_fun(NewIndex)} end.
 
-%% @spec write_assoc(Assoc::assoc(), integer()) -> {iolist(), integer()}
+%% @spec write_assoc(Assoc::assoc(), Precision::integer(),
+%%                   integer()) -> {iolist(), integer()}
 write_assoc({Integer, Value}, Precision, Index) when is_integer(Integer) ->
   IntegerBin = write_integer(Integer),
   NewIndex = max(Integer, Index),
@@ -105,7 +107,7 @@ write_property_fun() ->
   fun (Property, Precision) ->
     {write_property(Property, Precision), write_property_fun()} end.
 
-%% @spec write_property(Property::property()) -> iolist()
+%% @spec write_property(Property::property(), integer()) -> iolist()
 write_property({Name, Value}, Precision) ->
   [write_string(Name), serialize(Value, Precision)].
 
