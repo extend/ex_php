@@ -6,7 +6,8 @@
 %% @type object() = {object, class(), object_data()}.
 %% @type class() = label().
 %% @type label() = iodata().
-%% @type object_data() = binary() | atom() | [property()].
+%% @type object_data() = raw | [property()].
+%% @type raw() = {raw, data()}.
 %% @type property() = pair(data()).
 %% @type data() = iodata() | atom().
 %% @type pair(T) = {T, value()}.
@@ -75,7 +76,7 @@ read_serialized(<<"a:", Rest/binary>>) ->
 read_serialized(<<"O:", Rest/binary>>) ->
   read_object(Rest, fun read_properties/2);
 read_serialized(<<"C:", Rest/binary>>) ->
-  read_object(Rest, fun read_data/2);
+  read_object(Rest, fun read_raw/2);
 read_serialized(Bin) when is_binary(Bin) ->
   read_key(Bin);
 read_serialized(List) when is_list(List) ->
@@ -87,7 +88,7 @@ read_serialized(List) when is_list(List) ->
 write_object(Class, Data, Precision) when is_list(Data) ->
   iolist_to_binary([$O, $:, write_label(Class), $:,
                     write_pairs(Data, Precision, write_property_fun())]);
-write_object(Class, Data, _Precision) ->
+write_object(Class, {raw, Data}, _Precision) ->
   DataBin = write_data(Data),
   iolist_to_binary([$C, $:, write_label(Class), $:,
                     unsigned_to_binary(byte_size(DataBin)), $:,
@@ -220,10 +221,10 @@ read_brackets(Bin, ReadFun) ->
 read_properties(Bin, Length) ->
   read_pairs(Bin, Length, fun read_string/1).
 
-%% @spec read_data(binary(), integer()) -> {binary(), binary()}
-read_data(Bin, Length) ->
+%% @spec read_raw(binary(), integer()) -> {raw(), binary()}
+read_raw(Bin, Length) ->
   <<Data:Length/binary, Rest/binary>> = Bin,
-  {Data, Rest}.
+  {{raw, Data}, Rest}.
 
 %% @spec read_assocs(binary(), integer()) -> {[assoc()], binary()}
 read_assocs(Bin, Length) ->
@@ -313,4 +314,4 @@ basic_test_() ->
                              <<"foobar">>,
                              {array, []},
                              {object, <<"stdClass">>, []},
-                             {object, <<"Foo">>, <<"bar">>}] ].
+                             {object, <<"Foo">>, {raw, <<"bar">>}}] ].
