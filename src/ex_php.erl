@@ -219,6 +219,7 @@ read_index(<<"i:", Rest/binary>>) ->
 read_index(Bin) ->
   read_string(Bin).
 
+%% @spec read_string(Bin::binary()) -> binary()
 read_string(<<"s:", Rest/binary>>) ->
   {String, <<$;, Rest2/binary>>} = read_binary(Rest),
   {String, Rest2}.
