@@ -82,13 +82,11 @@ read_serialized(List) when is_list(List) ->
 %% @spec write_object(Class::class(), object_data(),
 %%                    Precision::integer()) -> binary()
 write_object(Class, Data, Precision) when is_list(Data) ->
-  ClassBin = write_label(Class),
-  PropertiesIo = write_bindings(Data, Precision, write_property_fun()),
-  iolist_to_binary([$O, $:, write_binary(ClassBin), $:, PropertiesIo]);
+  iolist_to_binary([$O, $:, write_label(Class), $:,
+                    write_bindings(Data, Precision, write_property_fun())]);
 write_object(Class, Data, _Precision) ->
-  ClassBin = write_label(Class),
   DataBin = write_data(Data),
-  iolist_to_binary([$C, $:, write_binary(ClassBin), $:,
+  iolist_to_binary([$C, $:, write_label(Class), $:,
                     unsigned_to_binary(byte_size(DataBin)), $:,
                     ${, DataBin, $}]).
 
@@ -171,7 +169,7 @@ write_label(Atom) when is_atom(Atom) ->
 write_label(<<C, Rest/binary>>, Acc) when ?is_letter(C); ?is_digit(C) ->
   write_label(Rest, Acc);
 write_label(<<>>, Acc) ->
-  list_to_binary(lists:reverse(Acc)).
+  write_binary(list_to_binary(lists:reverse(Acc))).
 
 %% @spec write_binary(Value::data()) -> binary()
 %% @doc Return `<<"L(Value):\"Value\"">>'.
