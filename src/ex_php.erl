@@ -1,4 +1,5 @@
-%% @type value() = null | bool() | integer() | float() | array() | object().
+%% @type value() = null | bool() | integer() | float() | array()
+%%               | object() | data().
 %% @type array() = {array, [assoc()]}.
 %% @type assoc() = binding(key()) | value().
 %% @type key() = null | bool() | integer() | data().
@@ -79,7 +80,7 @@ read_serialized(List) when is_list(List) ->
   read_serialized(iolist_to_binary(List)).
 
 
-%% @spec write_object(Class::class(), object_data(),
+%% @spec write_object(class(), object_data(),
 %%                    Precision::integer()) -> binary()
 write_object(Class, Data, Precision) when is_list(Data) ->
   iolist_to_binary([$O, $:, write_label(Class), $:,
@@ -203,7 +204,7 @@ unsigned_to_binary(Integer, Acc) ->
   unsigned_to_binary(Integer div 10, <<((Integer rem 10) + $0), Acc/binary>>).
 
 
-%% @spec read_assocs(binary(), function()) -> [field()]
+%% @spec read_assocs(binary(), function()) -> {[field()], binary()}
 read_assocs(Bin, ReadKeyFun) ->
   {Length, <<":{", Rest/binary>>} = read_unsigned(Bin),
   read_assocs(Rest, ReadKeyFun, Length, []).
@@ -214,37 +215,37 @@ read_assocs(Bin, ReadKeyFun, N, Fields) ->
   {Value, Rest2} = read_serialized(Rest),
   read_assocs(Rest2, ReadKeyFun, N - 1, [{Key, Value}, Fields]).
 
-%% @spec read_index(Bin::binary()) -> integer() | binary()
+%% @spec read_index(Bin::binary()) -> {integer() | binary(), binary()}
 read_index(<<"i:", Rest/binary>>) ->
   {Integer, <<";", Rest2/binary>>} = read_integer(Rest),
   {Integer, Rest2};
 read_index(Bin) ->
   read_string(Bin).
 
-%% @spec read_string(Bin::binary()) -> binary()
+%% @spec read_string(Bin::binary()) -> {binary(), binary()}
 read_string(<<"s:", Rest/binary>>) ->
   {String, <<$;, Rest2/binary>>} = read_binary(Rest),
   {String, Rest2}.
 
-%% @spec read_binary(binary()) -> binary()
+%% @spec read_binary(binary()) -> {binary(), binary()}
 read_binary(Bin) ->
   {Length, <<$:, Rest/binary>>} = read_unsigned(Bin),
   <<$", String:Length/binary, $", Rest2/binary>> = Rest,
   {String, Rest2}.
 
-%% @spec read_float(binary()) -> float()
+%% @spec read_float(binary()) -> {float(), binary()}
 read_float(Bin) ->
   {Int, <<$., Rest/binary>>} = read_integer(Bin),
   {Digits, <<$;, Rest2/binary>>} = read_digits(Rest),
   {Int + list_to_float("0." ++ Digits), Rest2}.
 
-%% @spec read_integer(binary()) -> integer()
+%% @spec read_integer(binary()) -> {integer(), binary()}
 read_integer(<<$-, Rest/binary>>) ->
   -read_unsigned(Rest);
 read_integer(Bin) ->
   read_unsigned(Bin).
 
-%% @spec read_unsigned(binary()) -> integer()
+%% @spec read_unsigned(binary()) -> {integer(), binary()}
 read_unsigned(Bin) ->
   read_unsigned(Bin, 0, start).
 read_unsigned(<<C, Rest/binary>>, Acc, _State) when C >= $0, C =< $9 ->
@@ -252,7 +253,7 @@ read_unsigned(<<C, Rest/binary>>, Acc, _State) when C >= $0, C =< $9 ->
 read_unsigned(Bin, Acc, reading) ->
   {Acc, Bin}.
 
-%% @spec read_digits(binary()) -> string()
+%% @spec read_digits(binary()) -> {string(), binary()}
 read_digits(Bin) ->
   read_digits(Bin, []).
 read_digits(<<C, Rest/binary>>, Acc) when C >= $0, C =< $9 ->
