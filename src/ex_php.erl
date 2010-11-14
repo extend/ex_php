@@ -1,15 +1,15 @@
 %% @type value() = null | bool() | integer() | float() | array()
 %%               | object() | data().
 %% @type array() = {array, [assoc()]}.
-%% @type assoc() = binding(key()) | value().
+%% @type assoc() = pair(key()) | value().
 %% @type key() = null | bool() | integer() | data().
 %% @type object() = {object, class(), object_data()}.
 %% @type class() = label().
 %% @type label() = iodata().
 %% @type object_data() = data() | [property()].
-%% @type property() = binding(data()).
+%% @type property() = pair(data()).
 %% @type data() = iodata() | atom().
-%% @type binding(T) = {T, value()}.
+%% @type pair(T) = {T, value()}.
 
 -module(ex_php).
 -include_lib("eunit/include/eunit.hrl").
@@ -40,7 +40,7 @@ serialize(Float, Precision) when is_float(Float) ->
   Format = lists:flatten([$~, $., integer_to_list(Precision), $f]),
   iolist_to_binary([$d, $:, io_lib:format(Format, [Float]), $;]);
 serialize({array, Assocs}, Precision) when is_list(Assocs) ->
-  AssocsIo =  write_bindings(Assocs, Precision, write_assoc_fun(0)),
+  AssocsIo =  write_pairs(Assocs, Precision, write_assoc_fun(0)),
   iolist_to_binary([<<"a:">>, AssocsIo]);
 serialize({object, Class, Data}, Precision) ->
   write_object(Class, Data, Precision);
@@ -70,14 +70,14 @@ read_serialized(<<"d:", Rest/binary>>) ->
   {Double, <<";", Rest2/binary>>} = read_float(Rest),
   {Double, Rest2};
 read_serialized(<<"a:", Rest/binary>>) ->
-  {Fields, Rest2} = read_brackets(Rest, fun read_array_data/2),
+  {Fields, Rest2} = read_brackets(Rest, fun read_assocs/2),
   {{array, Fields}, Rest2};
 read_serialized(<<"O:", Rest/binary>>) ->
   read_object(Rest, fun read_properties/2);
 read_serialized(<<"C:", Rest/binary>>) ->
   read_object(Rest, fun read_data/2);
 read_serialized(Bin) when is_binary(Bin) ->
-  read_index(Bin);
+  read_key(Bin);
 read_serialized(List) when is_list(List) ->
   read_serialized(iolist_to_binary(List)).
 
@@ -86,22 +86,22 @@ read_serialized(List) when is_list(List) ->
 %%                    Precision::integer()) -> binary()
 write_object(Class, Data, Precision) when is_list(Data) ->
   iolist_to_binary([$O, $:, write_label(Class), $:,
-                    write_bindings(Data, Precision, write_property_fun())]);
+                    write_pairs(Data, Precision, write_property_fun())]);
 write_object(Class, Data, _Precision) ->
   DataBin = write_data(Data),
   iolist_to_binary([$C, $:, write_label(Class), $:,
                     unsigned_to_binary(byte_size(DataBin)), $:,
                     ${, DataBin, $}]).
 
-%% @spec write_bindings(Bindings::[binding()], Precision::integer(),
-%%                      function()) -> iolist()
-write_bindings(Bindings, Precision, WriteFun) ->
-  write_bindings(Bindings, Precision, WriteFun, [], 0).
-write_bindings([], _Precision, _WriteFun, Acc, Length) ->
+%% @spec write_pairs(Pairs::[pair()], Precision::integer(),
+%%                   function()) -> iolist()
+write_pairs(Pairs, Precision, WriteFun) ->
+  write_pairs(Pairs, Precision, WriteFun, [], 0).
+write_pairs([], _Precision, _WriteFun, Acc, Length) ->
   [integer_to_binary(Length), ":{", lists:reverse(Acc), $}];
-write_bindings([Field | Fields], Precision, WriteFun, Acc, Length) ->
+write_pairs([Field | Fields], Precision, WriteFun, Acc, Length) ->
   {FieldBin, NewWriteFun} = WriteFun(Field, Precision),
-  write_bindings(Fields, Precision, NewWriteFun, [FieldBin | Acc], Length + 1).
+  write_pairs(Fields, Precision, NewWriteFun, [FieldBin | Acc], Length + 1).
 
 %% @spec write_assoc_fun(integer()) -> function()
 write_assoc_fun(Index) ->
@@ -117,7 +117,7 @@ write_assoc({Key, Value}, Precision, Index) ->
 write_assoc(Value, Precision, Index) ->
   write_assoc({Index, Value}, Precision, Index).
 
-%% @spec write_key(Index::index(), Index::integer()) -> {binary(), integer()}
+%% @spec write_key(Key::key(), Index::integer()) -> {binary(), integer()}
 write_key(Integer, Index) when is_integer(Integer) ->
   {write_integer(Integer), max(Integer, Index + 1)};
 write_key(Atom, Index) when Atom =:= null; Atom =:= false ->
@@ -214,32 +214,32 @@ read_brackets(Bin, ReadFun) ->
 
 %% @spec read_properties(binary(), integer()) -> {[property()], binary()}
 read_properties(Bin, Length) ->
-  read_assocs(Bin, Length, fun read_string/1).
+  read_pairs(Bin, Length, fun read_string/1).
 
 %% @spec read_data(binary(), integer()) -> {binary(), binary()}
 read_data(Bin, Length) ->
   <<Data:Length/binary, Rest/binary>> = Bin,
   {Data, Rest}.
 
-%% @spec read_array_data(binary(), integer()) -> {[assoc()], binary()}
-read_array_data(Bin, Length) ->
-  read_assocs(Bin, Length, fun read_index/1).
+%% @spec read_assocs(binary(), integer()) -> {[assoc()], binary()}
+read_assocs(Bin, Length) ->
+  read_pairs(Bin, Length, fun read_key/1).
 
-%% @spec read_assocs(binary(), function()) -> {[field()], binary()}
-read_assocs(Bin, Length, ReadKeyFun) ->
-  read_assocs(Bin, Length, ReadKeyFun, []).
-read_assocs(Bin, 0, _ReadKeyFun, Fields) ->
+%% @spec read_pairs(binary(), integer(), function()) -> {[field()], binary()}
+read_pairs(Bin, Length, ReadKeyFun) ->
+  read_pairs(Bin, Length, ReadKeyFun, []).
+read_pairs(Bin, 0, _ReadKeyFun, Fields) ->
   {lists:reverse(Fields), Bin};
-read_assocs(Bin, N, ReadKeyFun, Fields) ->
+read_pairs(Bin, N, ReadKeyFun, Fields) ->
   {Key, <<$:, Rest/binary>>} = ReadKeyFun(Bin),
   {Value, Rest2} = read_serialized(Rest),
-  read_assocs(Rest2, N - 1, ReadKeyFun, [{Key, Value}, Fields]).
+  read_pairs(Rest2, N - 1, ReadKeyFun, [{Key, Value}, Fields]).
 
-%% @spec read_index(Bin::binary()) -> {integer() | binary(), binary()}
-read_index(<<"i:", Rest/binary>>) ->
+%% @spec read_key(Bin::binary()) -> {integer() | binary(), binary()}
+read_key(<<"i:", Rest/binary>>) ->
   {Integer, <<";", Rest2/binary>>} = read_integer(Rest),
   {Integer, Rest2};
-read_index(Bin) ->
+read_key(Bin) ->
   read_string(Bin).
 
 %% @spec read_string(Bin::binary()) -> {binary(), binary()}
