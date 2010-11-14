@@ -97,6 +97,7 @@ write_object(Class, Data, _Precision) ->
 %%                   function()) -> iolist()
 write_pairs(Pairs, Precision, WriteFun) ->
   write_pairs(Pairs, Precision, WriteFun, [], 0).
+%% @hidden
 write_pairs([], _Precision, _WriteFun, Acc, Length) ->
   [integer_to_binary(Length), ":{", lists:reverse(Acc), $}];
 write_pairs([Field | Fields], Precision, WriteFun, Acc, Length) ->
@@ -161,6 +162,7 @@ write_string(Value) ->
 
 write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
   write_label(Rest, [C]);
+%% @hidden
 write_label(List) when is_list(List) ->
   write_label(iolist_to_binary(List));
 write_label(Atom) when is_atom(Atom) ->
@@ -248,6 +250,7 @@ read_key(Bin) ->
 read_string(<<"s:", Rest/binary>>) ->
   {String, <<$;, Rest2/binary>>} = read_binary(Rest, fun read_string/2),
   {String, Rest2}.
+%% @hidden
 read_string(Bin, Length) ->
   <<String:Length/binary, Rest/binary>> = Bin,
   {String, Rest}.
@@ -255,6 +258,7 @@ read_string(Bin, Length) ->
 %% @spec read_label(binary()) -> {label(), binary()}
 read_label(Bin) ->
   read_binary(Bin, fun read_label/2).
+%% @hidden
 read_label(<<C, Rest/binary>>, Length) when ?is_letter(C) ->
   read_label(Rest, Length - 1, [C]).
 read_label(<<C, Rest/binary>>, Length, Acc) when ?is_letter(C); ?is_digit(C) ->
@@ -283,6 +287,7 @@ read_integer(Bin) ->
 %% @spec read_unsigned(binary()) -> {integer(), binary()}
 read_unsigned(Bin) ->
   read_unsigned(Bin, 0, start).
+%% @hidden
 read_unsigned(<<C, Rest/binary>>, Acc, _State) when C >= $0, C =< $9 ->
   read_unsigned(Rest, Acc * 10 + C - $0, reading);
 read_unsigned(Bin, Acc, reading) ->
@@ -291,12 +296,14 @@ read_unsigned(Bin, Acc, reading) ->
 %% @spec read_digits(binary()) -> {string(), binary()}
 read_digits(Bin) ->
   read_digits(Bin, []).
+%% @hidden
 read_digits(<<C, Rest/binary>>, Acc) when C >= $0, C =< $9 ->
   read_digits(Rest, [C | Acc]);
 read_digits(Bin, Acc) ->
   {lists:reverse(Acc), Bin}.
 
 
+%% @hidden
 basic_test_() ->
   Test = fun (Value) -> fun () -> unserialize(serialize(Value)) end end,
   [ Test(Value) || Value <- [null,
