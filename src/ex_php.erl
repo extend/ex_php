@@ -1,30 +1,48 @@
-%% @type value() = null | bool() | integer() | float() | array()
-%%               | object() | data().
-%% @type array() = {array, [assoc()]}.
-%% @type assoc() = pair(key()) | value().
-%% @type key() = null | bool() | integer() | float() | data().
-%% @type object() = {object, class(), object_data()}.
+%% Copyright (c) 2010, Dev:Extend
+%% All rights reserved.
+%%
+%% Redistribution and use in source and binary forms, with or without
+%% modification, are permitted provided that the following conditions are met:
+%%
+%%  * Redistributions of source code must retain the above copyright notice,
+%%    this list of conditions and the following disclaimer.
+%%  * Redistributions in binary form must reproduce the above copyright
+%%    notice, this list of conditions and the following disclaimer in the
+%%    documentation and/or other materials provided with the distribution.
+%%  * Neither the name of Dev:Extend nor the names of its contributors may be
+%%    used to endorse or promote products derived from this software without
+%%    specific prior written permission.
+%%
+%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+%% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+%% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+%% ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+%% LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+%% CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+%% SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+%% INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+%% CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+%% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+%% POSSIBILITY OF SUCH DAMAGE.
+
+%% @type value() = null | bool() | integer() | float() | array() | object().
+%% @type array() = [{key(), value()}].
+%% @type object() = {class(), object_data()}.
 %% @type class() = label().
-%% @type label() = iodata().
-%% @type object_data() = raw | [property()].
-%% @type raw() = {raw, data()}.
-%% @type property() = pair(data()).
-%% @type data() = iodata() | atom().
-%% @type pair(T) = {T, value()}.
+%% @type object_data() = iodata() | array().
+%% @type key() = integer() | label().
+%% @type label() = atom() | iodata().
+%% @type iodata() = iolist() | binary().
+%% @type iolist() = [char() | string() | binary()].
 
 -module(ex_php).
+-author('Anthony Ramine <nox@dev-extend.eu>').
 -include_lib("eunit/include/eunit.hrl").
 
 -export([serialize/1,
          serialize/2,
          unserialize/1,
          read_serialized/1]).
-
--define(is_digit(C), C >= $0, C =< $9).
--define(is_letter(C), C =:= $_;
-                      C >= $A, C =< $Z;
-                      C >= $a, C =< $z;
-                      C >= 127).
 
 %% @spec serialize(value()) -> binary()
 %% @equiv serialize(Value, 6)
@@ -34,26 +52,22 @@ serialize(Value) ->
 
 %% @spec serialize(Value::value(), Precision::integer()) -> binary()
 %% @doc Serialize `Value' using `Precision' to write floats.
-%% @todo Document array indexing.
 serialize(Integer, _Precision) when is_integer(Integer) ->
   write_integer(Integer);
 serialize(Float, Precision) when is_float(Float) ->
   Format = lists:flatten([$~, $., integer_to_list(Precision), $f]),
   iolist_to_binary([$d, $:, io_lib:format(Format, [Float]), $;]);
-serialize({array, Assocs}, Precision) when is_list(Assocs) ->
-  AssocsIo =  write_pairs(Assocs, Precision, write_assoc_fun(0)),
-  iolist_to_binary([<<"a:">>, AssocsIo]);
-serialize({object, Class, Data}, Precision) ->
+serialize(Bin, _Precision) when is_binary(Bin) ->
+  write_string(Bin);
+serialize(List, Precision) when is_list(List) ->
+  iolist_to_binary([<<"a:">>, write_pairs(List, Precision)]);
+serialize({Class, Data}, Precision) ->
   write_object(Class, Data, Precision);
 serialize(Atom, _Precision) when is_atom(Atom) ->
-  write_atom(Atom);
-serialize(Term, _Precision) ->
-  write_string(Term).
+  write_atom(Atom).
 
 %% @spec unserialize(iodata()) -> value()
 %% @doc Unserialize `Data'.
-%%      Array values are always qualified by their indices, object properties
-%%      are always returned as binaries.
 unserialize(Data) ->
   {Term, <<>>} = read_serialized(Data),
   Term.
@@ -87,55 +101,27 @@ read_serialized(List) when is_list(List) ->
 %%                    Precision::integer()) -> binary()
 write_object(Class, Data, Precision) when is_list(Data) ->
   iolist_to_binary([$O, $:, write_label(Class), $:,
-                    write_pairs(Data, Precision, write_property_fun())]);
-write_object(Class, {raw, Data}, _Precision) ->
-  DataBin = write_data(Data),
+                    write_pairs(Data, Precision)]);
+write_object(Class, Data, _Precision) when is_binary(Data) ->
   iolist_to_binary([$C, $:, write_label(Class), $:,
-                    unsigned_to_binary(byte_size(DataBin)), $:,
-                    ${, DataBin, $}]).
+                    unsigned_to_binary(byte_size(Data)), $:,
+                    ${, Data, $}]).
 
-%% @spec write_pairs(Pairs::[pair()], Precision::integer(),
-%%                   function()) -> iolist()
-write_pairs(Pairs, Precision, WriteFun) ->
-  write_pairs(Pairs, Precision, WriteFun, [], 0).
+%% @spec write_pairs(Pairs::[pair()], Precision::integer()) -> iolist()
+write_pairs(Pairs, Precision) ->
+  write_pairs(Pairs, Precision, [], 0).
 %% @hidden
-write_pairs([], _Precision, _WriteFun, Acc, Length) ->
+write_pairs([], _Precision, Acc, Length) ->
   [integer_to_binary(Length), ":{", lists:reverse(Acc), $}];
-write_pairs([Field | Fields], Precision, WriteFun, Acc, Length) ->
-  {FieldBin, NewWriteFun} = WriteFun(Field, Precision),
-  write_pairs(Fields, Precision, NewWriteFun, [FieldBin | Acc], Length + 1).
+write_pairs([{Key, Value} | Pairs], Precision, Acc, Length) ->
+  PairBin = [write_key(Key), serialize(Value, Precision)],
+  write_pairs(Pairs, Precision, [PairBin | Acc], Length + 1).
 
-%% @spec write_assoc_fun(integer()) -> function()
-write_assoc_fun(Index) ->
-  fun (Assoc, Precision) ->
-        {AssocBin, NewIndex} = write_assoc(Assoc, Precision, Index),
-        {AssocBin, write_assoc_fun(NewIndex)} end.
-
-%% @spec write_assoc(Assoc::assoc(), Precision::integer(),
-%%                   integer()) -> {iolist(), integer()}
-write_assoc({Key, Value}, Precision, Index) ->
-  {KeyBin, NewIndex} = write_key(Key, Index),
-  {[KeyBin, serialize(Value, Precision)], NewIndex + 1};
-write_assoc(Value, Precision, Index) ->
-  write_assoc({Index, Value}, Precision, Index).
-
-%% @spec write_key(Key::key(), Index::integer()) -> {binary(), integer()}
-write_key(Integer, Index) when is_integer(Integer) ->
-  {write_integer(Integer), max(Integer, Index + 1)};
-write_key(Float, Index) when is_float(Float) ->
-  {trunc(Float), Index};
-write_key(Atom, Index) when Atom =:= null; Atom =:= false ->
-  write_key(0, Index);
-write_key(true, Index) ->
-  write_key(1, Index);
-write_key(Data, Index) ->
-  {write_string(Data), Index}.
-
-%% @spec write_property_fun() -> function()
-write_property_fun() ->
-  fun ({Name, Value}, Precision) ->
-        {[write_string(Name), serialize(Value, Precision)],
-         write_property_fun()} end.
+%% @spec write_key(Key::key()) -> binary()
+write_key(Integer) when is_integer(Integer) ->
+  write_integer(Integer);
+write_key(Label) ->
+  write_label(Label).
 
 %% @spec write_integer(integer()) -> binary()
 %% @doc Return `<<"i:Integer;">>'.
@@ -144,16 +130,13 @@ write_integer(Integer) ->
 
 %% @spec write_atom(Atom::atom()) -> binary()
 %% @doc Return `<<"N;">>' if `Atom' is `null', `<<"b:0;">>' if `Atom' is
-%%      `false', `<<"b:1;">>' if `Atom' is `true'; otherwise call
-%%      write_string/1 with the binary representation of `Atom'.
+%%      `false', `<<"b:1;">>' if `Atom' is `true'.
 write_atom(null) ->
   <<"N;">>;
 write_atom(false) ->
   <<"b:0;">>;
 write_atom(true) ->
-  <<"b:1;">>;
-write_atom(Atom) ->
-  write_string(atom_to_binary(Atom, latin1)).
+  <<"b:1;">>.
 
 %% @spec write_string(Value::type()) -> binary()
 %%       where type() = iodata() | atom()
@@ -161,32 +144,18 @@ write_atom(Atom) ->
 write_string(Value) ->
   <<"s:", (write_binary(Value))/binary, $;>>.
 
-write_label(<<C, Rest/binary>>) when ?is_letter(C) ->
-  write_label(Rest, [C]);
 %% @hidden
 write_label(List) when is_list(List) ->
   write_label(iolist_to_binary(List));
 write_label(Atom) when is_atom(Atom) ->
-  write_label(atom_to_binary(Atom, latin1)).
-write_label(<<C, Rest/binary>>, Acc) when ?is_letter(C); ?is_digit(C) ->
-  write_label(Rest, Acc);
-write_label(<<>>, Acc) ->
-  write_binary(list_to_binary(lists:reverse(Acc))).
+  write_label(atom_to_binary(Atom, latin1));
+write_label(Term) ->
+  write_string(Term).
 
-%% @spec write_binary(Value::data()) -> binary()
+%% @spec write_binary(binary()) -> binary()
 %% @doc Return `<<"L(Value):\"Value\"">>'.
-write_binary(Value) ->
-  Bin = write_data(Value),
+write_binary(Bin) ->
   <<(unsigned_to_binary(byte_size(Bin)))/binary, $:, $", Bin/binary, $">>.
-
-%% @spec write_data(Value::data()) -> binary()
-%% @doc Return `Value' as a binary.
-write_data(Bin) when is_binary(Bin) ->
-  Bin;
-write_data(List) when is_list(List) ->
-  write_data(iolist_to_binary(List));
-write_data(Atom) when is_atom(Atom) ->
-  write_data(atom_to_binary(Atom, latin1)).
 
 %% @spec integer_to_binary(integer()) -> binary()
 integer_to_binary(Integer) when Integer < 0 ->
@@ -207,9 +176,9 @@ unsigned_to_binary(Integer, Acc) ->
 
 %% @spec read_object(binary(), function()) -> {object(), binary()}
 read_object(Bin, ReadFun) ->
-  {Class, <<$:, Rest/binary>>} = read_label(Bin),
+  {Class, <<$:, Rest/binary>>} = read_string(Bin),
   {ObjectData, Rest2} = read_brackets(Rest, ReadFun),
-  {{object, Class, ObjectData}, Rest2}.
+  {{Class, ObjectData}, Rest2}.
 
 %% @spec read_brackets(binary(), function()) -> {term(), binary()}
 read_brackets(Bin, ReadFun) ->
@@ -256,17 +225,6 @@ read_string(Bin, Length) ->
   <<String:Length/binary, Rest/binary>> = Bin,
   {String, Rest}.
 
-%% @spec read_label(binary()) -> {label(), binary()}
-read_label(Bin) ->
-  read_binary(Bin, fun read_label/2).
-%% @hidden
-read_label(<<C, Rest/binary>>, Length) when ?is_letter(C) ->
-  read_label(Rest, Length - 1, [C]).
-read_label(<<C, Rest/binary>>, Length, Acc) when ?is_letter(C); ?is_digit(C) ->
-  read_label(Rest, Length - 1, Acc);
-read_label(Bin, 0, Acc) ->
-  {list_to_binary(Acc), Bin}.
-
 %% @spec read_binary(binary(), function()) -> {binary(), binary()}
 read_binary(Bin, ReadFun) ->
   {Length, <<$:, $", Rest/binary>>} = read_unsigned(Bin),
@@ -312,6 +270,6 @@ basic_test_() ->
                              true,
                              42,
                              <<"foobar">>,
-                             {array, []},
-                             {object, <<"stdClass">>, []},
-                             {object, <<"Foo">>, {raw, <<"bar">>}}] ].
+                             [],
+                             {<<"stdClass">>, []},
+                             {<<"Foo">>, <<"bar">>}] ].
