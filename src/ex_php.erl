@@ -14,7 +14,11 @@
 
 -module(ex_php).
 -author('Anthony Ramine <nox@dev-extend.eu>').
+
+-ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -type input_value() :: value(atom() | binary()).
 -type output_value() :: value(binary()).
@@ -86,8 +90,7 @@ read_serialized(<<"b:0;", Rest/binary>>) ->
 read_serialized(<<"b:1;", Rest/binary>>) ->
   {true, Rest};
 read_serialized(<<"d:", Rest/binary>>) ->
-  {Double, <<";", Rest2/binary>>} = read_float(Rest),
-  {Double, Rest2};
+  read_float(Rest);
 read_serialized(<<"a:", Rest/binary>>) ->
   read_brackets(Rest, fun read_pairs/2);
 read_serialized(<<"O:", Rest/binary>>) ->
@@ -122,8 +125,8 @@ write_pairs([{Key, Value} | Pairs], Precision, Acc, Length) ->
 -spec write_key(input_key()) -> iolist().
 write_key(Integer) when is_integer(Integer) ->
   write_integer(Integer);
-write_key(Label) ->
-  write_label(Label).
+write_key(Key) ->
+  [<<"s:">>, write_label(Key), $;].
 
 -spec write_integer(integer()) -> iolist().
 write_integer(Integer) ->
@@ -139,13 +142,17 @@ write_atom(true) ->
 
 -spec write_label(atom() | binary()) -> iolist().
 write_label(Atom) when is_atom(Atom) ->
-  write_string(atom_to_binary(Atom, latin1));
-write_label(Term) ->
-  write_string(Term).
+  write_quotes(atom_to_binary(Atom, latin1));
+write_label(Bin) ->
+  write_quotes(Bin).
 
 -spec write_string(binary()) -> iolist().
 write_string(Bin) ->
-  [<<"s:">>, unsigned_to_binary(byte_size(Bin)), <<":\"">>, Bin, <<"\";">>].
+  [<<"s:">>, write_quotes(Bin), $;].
+
+-spec write_quotes(binary()) -> iolist().
+write_quotes(Bin) ->
+  [unsigned_to_binary(byte_size(Bin)), <<":\"">>, Bin, $"].
 
 -spec integer_to_binary(integer()) -> binary().
 integer_to_binary(Integer) when Integer < 0 ->
@@ -169,7 +176,8 @@ unsigned_to_binary(Integer, Acc) ->
 -spec read_object(binary(), read_brackets_fun(output_object_data())) ->
                    {output_object(), binary()}.
 read_object(Bin, ReadFun) ->
-  {Class, <<$:, Rest/binary>>} = read_string(Bin),
+  io:format("~s~n", [Bin]),
+  {Class, <<$:, Rest/binary>>} = read_quotes(Bin),
   {ObjectData, Rest2} = read_brackets(Rest, ReadFun),
   {{Class, ObjectData}, Rest2}.
 
@@ -193,7 +201,7 @@ read_pairs(Bin, Length) ->
 read_pairs(Bin, 0, Acc) ->
   {lists:reverse(Acc), Bin};
 read_pairs(Bin, N, Acc) ->
-  {Key, <<$:, Rest/binary>>} = read_key(Bin),
+  {Key, Rest} = read_key(Bin),
   {Value, Rest2} = read_serialized(Rest),
   read_pairs(Rest2, N - 1, [{Key, Value} | Acc]).
 
@@ -206,20 +214,28 @@ read_key(Bin) ->
 
 -spec read_string(binary()) -> {binary(), binary()}.
 read_string(<<"s:", Rest/binary>>) ->
-  {Length, <<$:, $", Rest2/binary>>} = read_unsigned(Rest),
-  <<String:Length/binary, $", $;, Rest3/binary>> = Rest2,
-  {String, Rest3}.
+  {String, <<$;, Rest2/binary>>} = read_quotes(Rest),
+  {String, Rest2}.
+
+-spec read_quotes(binary()) -> {binary(), binary()}.
+read_quotes(Bin) ->
+  {Length, <<$:, $", Rest/binary>>} = read_unsigned(Bin),
+  <<Value:Length/binary, $", Rest2/binary>> = Rest,
+  {Value, Rest2}.
 
 -spec read_float(binary()) -> {float(), binary()}.
+read_float(<<$-, Rest/binary>>) ->
+  {Float, Rest2} = read_float(Rest),
+  {-Float, Rest2};
 read_float(Bin) ->
-  {Int, <<$., Rest/binary>>} = read_integer(Bin),
+  {Int, <<$., Rest/binary>>} = read_unsigned(Bin),
   {Digits, <<$;, Rest2/binary>>} = read_digits(Rest),
   {Int + list_to_float("0." ++ Digits), Rest2}.
 
 -spec read_integer(binary()) -> {integer(), binary()}.
 read_integer(<<$-, Rest/binary>>) ->
-  {Result, Rest} = read_unsigned(Rest),
-  {-Result, Rest};
+  {Result, Rest2} = read_unsigned(Rest),
+  {-Result, Rest2};
 read_integer(Bin) ->
   read_unsigned(Bin).
 
@@ -244,6 +260,7 @@ read_digits(<<C, Rest/binary>>, Acc) when C >= $0, C =< $9 ->
 read_digits(Bin, Acc) ->
   {lists:reverse(Acc), Bin}.
 
+-ifdef(TEST).
 
 basic_test_() ->
   Test = fun (Value) -> fun () -> unserialize(serialize(Value)) end end,
@@ -255,3 +272,14 @@ basic_test_() ->
                              [],
                              {<<"stdClass">>, []},
                              {<<"Foo">>, <<"bar">>}] ].
+
+
+proper_test() ->
+  P = ?FORALL(X1, input_value(),
+              begin
+                X2 = ex_php:serialize(X1),
+                X2 =:= ex_php:serialize(ex_php:unserialize(X2))
+              end),
+  true = proper:quickcheck(P).
+
+-endif.
